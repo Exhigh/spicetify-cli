@@ -1,7 +1,6 @@
 let configContainer;
 
-function openConfig(event) {
-    event.preventDefault();
+function openConfig() {
     if (configContainer) {
         Spicetify.PopupModal.display({
             title: "Reddit",
@@ -13,7 +12,7 @@ function openConfig(event) {
     CONFIG.servicesElement = {};
 
     configContainer = document.createElement("div");
-    configContainer.id = "reddit-config-container"
+    configContainer.id = "reddit-config-container";
 
     const optionHeader = document.createElement("h2");
     optionHeader.innerText = "Options";
@@ -27,14 +26,14 @@ function openConfig(event) {
         CONFIG.services.forEach((name, index) => {
             const el = CONFIG.servicesElement[name];
 
-            const [ up, down ] = el.querySelectorAll("button");
+            const [up, down] = el.querySelectorAll("button");
             if (CONFIG.services.length === 1) {
                 up.disabled = true;
                 down.disabled = true;
             } else if (index === 0) {
                 up.disabled = true;
                 down.disabled = false;
-            } else if (index === (CONFIG.services.length - 1)) {
+            } else if (index === CONFIG.services.length - 1) {
                 up.disabled = false;
                 down.disabled = true;
             } else {
@@ -57,18 +56,15 @@ function openConfig(event) {
             CONFIG.services[newPos] = CONFIG.services[curPos];
             CONFIG.services[curPos] = temp;
         }
-        
-        localStorage.setItem(
-            "reddit:services",
-            JSON.stringify(CONFIG.services)
-        );
+
+        localStorage.setItem("reddit:services", JSON.stringify(CONFIG.services));
 
         stackServiceElements();
     }
 
     function removeCallback(el) {
         const id = el.dataset.id;
-        CONFIG.services = CONFIG.services.filter(s => s != id);
+        CONFIG.services = CONFIG.services.filter((s) => s != id);
         CONFIG.servicesElement[id].remove();
 
         localStorage.setItem("reddit:services", JSON.stringify(CONFIG.services));
@@ -76,12 +72,8 @@ function openConfig(event) {
         stackServiceElements();
     }
 
-    CONFIG.services.forEach(name => {
-        CONFIG.servicesElement[name] = createServiceOption(
-            name,
-            posCallback,
-            removeCallback,
-        );
+    CONFIG.services.forEach((name) => {
+        CONFIG.servicesElement[name] = createServiceOption(name, posCallback, removeCallback);
     });
     stackServiceElements();
 
@@ -96,11 +88,7 @@ function openConfig(event) {
 
         if (!CONFIG.services.includes(name)) {
             CONFIG.services.push(name);
-            CONFIG.servicesElement[name] = createServiceOption(
-                name,
-                posCallback,
-                removeCallback,
-            );
+            CONFIG.servicesElement[name] = createServiceOption(name, posCallback, removeCallback);
             localStorage.setItem("reddit:services", JSON.stringify(CONFIG.services));
         }
 
@@ -118,7 +106,7 @@ function openConfig(event) {
         createSlider("Long description", "longDescription"),
         serviceHeader,
         serviceContainer,
-        serviceInput,
+        serviceInput
     );
 
     Spicetify.PopupModal.display({
@@ -177,7 +165,7 @@ function createServiceOption(id, posCallback, removeCallback) {
     </div>
 </div>`;
 
-    const [ up, down, remove ] = container.querySelectorAll("button");
+    const [up, down, remove] = container.querySelectorAll("button");
 
     up.onclick = () => posCallback(container, -1);
     down.onclick = () => posCallback(container, 1);

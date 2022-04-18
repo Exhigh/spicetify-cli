@@ -9,16 +9,16 @@ import (
 	"strings"
 
 	"github.com/go-ini/ini"
-	"github.com/khanhas/spicetify-cli/src/utils"
+	"github.com/spicetify/spicetify-cli/src/utils"
 )
 
 var (
-	spicetifyFolder         = getSpicetifyFolder()
+	spicetifyFolder         = utils.GetSpicetifyFolder()
 	rawFolder, themedFolder = getExtractFolder()
-	backupFolder            = getUserFolder("Backup")
-	userThemesFolder        = getUserFolder("Themes")
-	userExtensionsFolder    = getUserFolder("Extensions")
-	userAppsFolder          = getUserFolder("CustomApps")
+	backupFolder            = utils.GetUserFolder("Backup")
+	userThemesFolder        = utils.GetUserFolder("Themes")
+	userExtensionsFolder    = utils.GetUserFolder("Extensions")
+	userAppsFolder          = utils.GetUserFolder("CustomApps")
 	quiet                   bool
 	isAppX                  = false
 	spotifyPath             string
@@ -51,7 +51,7 @@ func InitConfig(isQuiet bool) {
 	patchSection = cfg.GetSection("Patch")
 }
 
-// InitPaths checks various essential paths' availablities,
+// InitPaths checks various essential paths' availabilities,
 // tries to auto-detect them and stops spicetify when any one
 // of them is invalid.
 func InitPaths() {
@@ -146,15 +146,14 @@ func InitSetting() {
 		overwriteAssets = err == nil
 	}
 
-	if !replaceColors {
-		return
-	}
-
 	var err error
 	colorCfg, err = ini.InsensitiveLoad(colorPath)
 	if err != nil {
 		utils.PrintError("Cannot open file " + colorPath)
 		replaceColors = false
+	}
+
+	if !replaceColors {
 		return
 	}
 
@@ -192,51 +191,8 @@ func GetSpotifyPath() string {
 	return spotifyPath
 }
 
-func getSpicetifyFolder() string {
-	result, isAvailable := os.LookupEnv("SPICETIFY_CONFIG")
-	defer func() { utils.CheckExistAndCreate(result) }()
-
-	if isAvailable && len(result) > 0 {
-		return result
-	}
-
-	if runtime.GOOS == "windows" {
-		result = filepath.Join(os.Getenv("USERPROFILE"), ".spicetify")
-
-	} else if runtime.GOOS == "linux" {
-		parent, isAvailable := os.LookupEnv("XDG_CONFIG_HOME")
-
-		if !isAvailable || len(parent) == 0 {
-			parent = filepath.Join(os.Getenv("HOME"), ".config")
-			utils.CheckExistAndCreate(parent)
-		}
-
-		result = filepath.Join(parent, "spicetify")
-
-	} else if runtime.GOOS == "darwin" {
-		parent, isAvailable := os.LookupEnv("XDG_CONFIG_HOME")
-
-		if !isAvailable || len(parent) == 0 {
-			parent = os.Getenv("HOME")
-		}
-
-		result = filepath.Join(parent, "spicetify_data")
-	}
-
-	return result
-}
-
-// getUserFolder checks if folder `name` is available in spicetifyFolder,
-// else creates then returns the path.
-func getUserFolder(name string) string {
-	dir := filepath.Join(spicetifyFolder, name)
-	utils.CheckExistAndCreate(dir)
-
-	return dir
-}
-
 func getExtractFolder() (string, string) {
-	dir := getUserFolder("Extracted")
+	dir := utils.GetUserFolder("Extracted")
 
 	raw := filepath.Join(dir, "Raw")
 	utils.CheckExistAndCreate(raw)
@@ -269,7 +225,7 @@ func getThemeFolder(themeName string) string {
 // and returns boolean value based on user input (y/Y or n/N) or
 // return `defaultAnswer` if input is omitted.
 // If input is neither of them, print form again.
-// If app is in quiet mode, returns quietModeAnswer without promting.
+// If app is in quiet mode, returns quietModeAnswer without prompting.
 func ReadAnswer(info string, defaultAnswer bool, quietModeAnswer bool) bool {
 	if quiet {
 		return quietModeAnswer
@@ -290,13 +246,13 @@ func ReadAnswer(info string, defaultAnswer bool, quietModeAnswer bool) bool {
 	return ReadAnswer(info, defaultAnswer, quietModeAnswer)
 }
 
-// CheckUpgrade fetchs latest package version from Github API and inform user if there is new release
+// CheckUpgrade fetches latest package version from Github API and inform user if there is new release
 func CheckUpgrade(version string) {
 	if !settingSection.Key("check_spicetify_upgrade").MustBool() {
 		return
 	}
 
-	latestTag, err := FetchLatestTag()
+	latestTag, err := utils.FetchLatestTag()
 
 	if err != nil {
 		utils.PrintError("Cannot fetch latest release info")

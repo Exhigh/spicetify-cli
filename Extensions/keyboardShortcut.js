@@ -2,7 +2,7 @@
 
 // NAME: Keyboard Shortcut
 // AUTHOR: khanhas
-// DESCRIPTION: Register a few more keybinds to support keyboard-driven navigation in Spotify client. 
+// DESCRIPTION: Register a few more keybinds to support keyboard-driven navigation in Spotify client.
 
 /// <reference path="../globals.d.ts" />
 
@@ -16,12 +16,12 @@
 
     /**
      * Register your own keybind with function `registerBind`
-     * 
+     *
      * Syntax:
      *     registerBind(keyName, ctrl, shift, alt, callback)
-     * 
+     *
      * ctrl, shift and alt are boolean, true or false
-     * 
+     *
      * Valid keyName:
      * - BACKSPACE       - C               - Y               - F3
      * - TAB             - D               - Z               - F4
@@ -45,13 +45,13 @@
      * - DELETE          - V               - DIVIDE          - \
      * - A               - W               - F1              - ]
      * - B               - X               - F2              - "
-     * 
+     *
      * Use one of keyName as a string. If key that you want isn't in that list,
      * you can also put its keycode number in keyName as a number.
-     * 
-     * callback is name of function you want your shortcut to bind to. It also 
+     *
+     * callback is name of function you want your shortcut to bind to. It also
      * returns one KeyboardEvent parameter.
-     * 
+     *
      * Following are my default keybinds, use them as examples.
      */
 
@@ -84,22 +84,32 @@
     // Forward Slash to open search page
     registerBind("/", false, false, false, openSearchPage);
 
+    if (window.navigator.userAgent.indexOf("Win") === -1) {
+        // CTRL + Arrow Left Next and CTRL + Arrow Right  Previous Song
+        registerBind("ARROW_RIGHT", true, false, false, nextSong);
+        registerBind("ARROW_LEFT", true, false, false, previousSong);
+
+        // CTRL + Arrow Up Increase Volume CTRL + Arrow Down Decrease Volume
+        registerBind("ARROW_UP", true, false, false, increaseVolume);
+        registerBind("ARROW_DOWN", true, false, false, decreaseVolume);
+    }
+
     // F to activate Link Follow function
     const vim = new VimBind();
     registerBind("F", false, false, false, vim.activate.bind(vim));
-    // Esc to cancle Link Follow
-    vim.setCancleKey("ESCAPE")
+    // Esc to cancel Link Follow
+    vim.setCancelKey("ESCAPE");
 
     function rotateSidebarDown() {
-        rotateSidebar(1)
+        rotateSidebar(1);
     }
 
     function rotateSidebarUp() {
-        rotateSidebar(-1)
+        rotateSidebar(-1);
     }
 
     function clickQueueButton() {
-        document.querySelector(".control-button-wrapper .spoticon-queue-16").click();
+        document.querySelector("div.ExtraControls div.control-button-wrapper > button").click();
     }
 
     function clickNavigatingBackButton() {
@@ -134,12 +144,28 @@
         app.scroll(0, 0);
     }
 
+    function nextSong() {
+        document.querySelector(".main-skipForwardButton-button").click();
+    }
+
+    function previousSong() {
+        document.querySelector(".main-skipBackButton-button").click();
+    }
+
+    function increaseVolume() {
+        Spicetify.Player.origin.setVolume(Spicetify.Player.getVolume() + 0.1);
+    }
+
+    function decreaseVolume() {
+        Spicetify.Player.origin.setVolume(Spicetify.Player.getVolume() - 0.1);
+    }
+
     /**
-     * 
-     * @param {KeyboardEvent} event 
+     *
+     * @param {KeyboardEvent} event
      */
     function openSearchPage(event) {
-        const searchInput = document.querySelector(".main-topBar-topbarContentWrapper input");
+        const searchInput = document.querySelector(".main-topBar-container input");
         if (searchInput) {
             searchInput.focus();
         } else {
@@ -153,12 +179,12 @@
     }
 
     /**
-     * 
-     * @param {Spicetify.Keyboard.ValidKey} keyName 
-     * @param {boolean} ctrl 
-     * @param {boolean} shift 
-     * @param {boolean} alt 
-     * @param {(event: KeyboardEvent) => void} callback 
+     *
+     * @param {Spicetify.Keyboard.ValidKey} keyName
+     * @param {boolean} ctrl
+     * @param {boolean} shift
+     * @param {boolean} alt
+     * @param {(event: KeyboardEvent) => void} callback
      */
     function registerBind(keyName, ctrl, shift, alt, callback) {
         const key = Spicetify.Keyboard.KEYS[keyName];
@@ -174,12 +200,12 @@
                 if (!vim.isActive) {
                     callback(event);
                 }
-            },
+            }
         );
     }
 
     function focusOnApp() {
-        return document.querySelector("main .os-viewport");
+        return document.querySelector(".Root__main-view .os-viewport");
     }
 
     /**
@@ -204,8 +230,8 @@
     }
 
     /**
-     * 
-     * @param {1 | -1} direction 
+     *
+     * @param {1 | -1} direction
      */
     function rotateSidebar(direction) {
         const allItems = document.querySelectorAll(
@@ -227,13 +253,7 @@
 })();
 
 function VimBind() {
-    const elementQuery = [
-        "[href]",
-        "button",
-        "td.tl-play",
-        "td.tl-number",
-        "tr.TableRow",
-    ].join(",");
+    const elementQuery = ["[href]", "button", "td.tl-play", "td.tl-number", "tr.TableRow"].join(",");
 
     const keyList = "qwertasdfgzxcvyuiophjklbnm".split("");
 
@@ -271,8 +291,8 @@ function VimBind() {
     mousetrap.stopCallback = () => true;
 
     /**
-     * 
-     * @param {KeyboardEvent} event 
+     *
+     * @param {KeyboardEvent} event
      */
     this.activate = function (event) {
         vimOverlay.style.display = "block";
@@ -287,9 +307,7 @@ function VimBind() {
         let secondKey = 0;
 
         getLinks().forEach((e) => {
-            if (e.style.display === "none" ||
-                e.style.visibility === "hidden" ||
-                e.style.opacity === "0") {
+            if (e.style.display === "none" || e.style.visibility === "hidden" || e.style.opacity === "0") {
                 return;
             }
 
@@ -310,12 +328,7 @@ function VimBind() {
                 return;
             }
 
-            vimOverlay.append(createKey(
-                e,
-                keyList[firstKey] + keyList[secondKey],
-                top,
-                left
-            ));
+            vimOverlay.append(createKey(e, keyList[firstKey] + keyList[secondKey], top, left));
 
             secondKey++;
             if (secondKey > lastKeyIndex) {
@@ -325,19 +338,19 @@ function VimBind() {
         });
 
         this.isActive = true;
-        setTimeout(() => mousetrap.stopCallback = orgStopCallback.bind(mousetrap), 100);
-    }
+        setTimeout(() => (mousetrap.stopCallback = orgStopCallback.bind(mousetrap)), 100);
+    };
 
     /**
-     * 
-     * @param {KeyboardEvent} event 
+     *
+     * @param {KeyboardEvent} event
      */
     this.deactivate = function (event) {
         mousetrap.stopCallback = () => true;
         this.isActive = false;
         vimOverlay.style.display = "none";
         getVims().forEach((e) => e.remove());
-    }
+    };
 
     function getLinks() {
         const elements = Array.from(document.querySelectorAll(elementQuery));
@@ -364,7 +377,7 @@ function VimBind() {
         }
 
         for (const div of vimkey) {
-            const text = div.innerText.toLowerCase()
+            const text = div.innerText.toLowerCase();
             if (text[0] !== event.key) {
                 div.remove();
                 continue;
@@ -391,20 +404,22 @@ function VimBind() {
             return;
         }
 
-        const findButton = element.querySelector(`button[data-ta-id="play-button"]`) ||
-            element.querySelector(`button[data-button="play"]`);
+        const findButton = element.querySelector(`button[data-ta-id="play-button"]`) || element.querySelector(`button[data-button="play"]`);
         if (findButton) {
             findButton.click();
             return;
         }
-
+        alert("Let me know where you found this button, please. I can't click this for you without that information.");
+        return;
         // TableCell case where play button is hidden
         // Index number is in first column
         const index = parseInt(element.firstChild.innerText) - 1;
         const context = getContextUri();
         if (index >= 0 && context) {
-            console.log(index, context)
-            Spicetify.PlaybackControl.playFromResolver(context, { index }, () => {});
+            console.log(index);
+            console.log(context);
+
+            //Spicetify.PlaybackControl.playFromResolver(context, { index }, () => {});
             return;
         }
     }
@@ -425,8 +440,7 @@ function VimBind() {
         if (activeApp) {
             try {
                 return JSON.parse(activeApp).uri.replace("app:", "");
-            }
-            catch {
+            } catch {
                 return null;
             }
         }
@@ -435,12 +449,12 @@ function VimBind() {
     }
 
     /**
-     * 
-     * @param {Spicetify.Keyboard.ValidKey} key 
+     *
+     * @param {Spicetify.Keyboard.ValidKey} key
      */
-    this.setCancleKey = function(key) {
+    this.setCancelKey = function (key) {
         mousetrap.bind(Spicetify.Keyboard.KEYS[key], this.deactivate.bind(this));
-    }
+    };
 
     return this;
 }

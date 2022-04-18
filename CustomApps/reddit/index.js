@@ -1,12 +1,14 @@
-// Run "npm i @type/react" to have this type package available in workspace
+// Run "npm i @types/react-dom @types/react" to have this type package available in workspace
 /// <reference types="react" />
+/// <reference types="react-dom" />
 
 /** @type {React} */
+const react = Spicetify.React;
+/** @type {ReactDOM} */
+const reactDOM = Spicetify.ReactDOM;
 const {
     URI,
-    React: react,
     React: { useState, useEffect, useCallback },
-    ReactDOM: reactDOM,
     Platform: { History },
 } = Spicetify;
 
@@ -52,7 +54,15 @@ let requestAfter = null;
 
 let gridUpdateTabs, gridUpdatePostsVisual;
 
+const typesLocale = {
+    album: Spicetify.Locale.get("album"),
+    song: Spicetify.Locale.get("song"),
+    playlist: Spicetify.Locale.get("playlist"),
+};
+
 class Grid extends react.Component {
+    viewportSelector = "#main .os-viewport";
+
     constructor(props) {
         super(props);
         Object.assign(this, props);
@@ -61,7 +71,7 @@ class Grid extends react.Component {
             tabs: CONFIG.services,
             rest: true,
             endOfList: endOfList,
-        }
+        };
     }
 
     newRequest(amount) {
@@ -71,22 +81,20 @@ class Grid extends react.Component {
         this.loadAmount(queue, amount);
     }
 
-    appendCards(items) {
-        for (const item of items) {
-            item.visual = CONFIG.visual;
-            cardList.push(react.createElement(Card, item));
-        }
-
-        this.setState({ cards: [...cardList] });
+    appendCard(item) {
+        item.visual = CONFIG.visual;
+        cardList.push(react.createElement(Card, item));
+        this.setState({ cards: cardList });
     }
 
-    updateSort() {
-        sortConfig.by = document.querySelector("#reddit-sort-by").value;
-        localStorage.setItem("reddit:sort-by", sortConfig.by);
-        const sortTime = document.querySelector("#reddit-sort-time");
-        if (sortTime) {
-            sortConfig.time = sortTime.value;
-            localStorage.setItem("reddit:sort-time", sortConfig.time);
+    updateSort(sortByValue, sortTimeValue) {
+        if (sortByValue) {
+            sortConfig.by = sortByValue;
+            localStorage.setItem("reddit:sort-by", sortByValue);
+        }
+        if (sortTimeValue) {
+            sortConfig.time = sortTimeValue;
+            localStorage.setItem("reddit:sort-time", sortTimeValue);
         }
 
         requestAfter = null;
@@ -108,16 +116,15 @@ class Grid extends react.Component {
     }
 
     updatePostsVisual() {
-        cardList = cardList.map(card => {
+        cardList = cardList.map((card) => {
             return react.createElement(Card, card.props);
         });
         this.setState({ cards: [...cardList] });
     }
 
-    switchTo(event) {
-        event.preventDefault();
-        CONFIG.lastService = event.target.value || event.target.innerText;
-        localStorage.setItem("reddit:last-service", CONFIG.lastService);
+    switchTo(value) {
+        CONFIG.lastService = value;
+        localStorage.setItem("reddit:last-service", value);
         cardList = [];
         requestAfter = null;
         this.setState({
@@ -132,14 +139,28 @@ class Grid extends react.Component {
 
     async loadPage(queue) {
         let subMeta = await getSubreddit(requestAfter);
-        let items = await getItemsMeta(postMapper(subMeta.data.children));
+        let posts = postMapper(subMeta.data.children);
+        for (const post of posts) {
+            let item;
+            switch (post.type) {
+                case "playlist":
+                case "playlist-v2":
+                    item = await fetchPlaylist(post);
+                    break;
+                case "track":
+                    item = await fetchTrack(post);
+                    break;
+                case "album":
+                    item = await fetchAlbum(post);
+                    break;
+            }
+            if (requestQueue.length > 1 && queue !== requestQueue[0]) {
+                // Stop this queue from continuing to fetch and append to cards list
+                return -1;
+            }
 
-        if (requestQueue.length > 1 && queue !== requestQueue[0]) {
-            // Stop this queue from continuing to fetch and append to cards list
-            return -1;
+            item && this.appendCard(item);
         }
-
-        this.appendCards(items);
 
         if (subMeta.data.after) {
             return subMeta.data.after;
@@ -155,17 +176,12 @@ class Grid extends react.Component {
         quantity += cardList.length;
 
         requestAfter = await this.loadPage(queue);
-        while (
-            requestAfter &&
-            requestAfter !== -1 &&
-            cardList.length < quantity &&
-            !this.endOfList
-        ) {
+        while (requestAfter && requestAfter !== -1 && cardList.length < quantity && !this.endOfList) {
             requestAfter = await this.loadPage(queue);
         }
 
         if (requestAfter === -1) {
-            requestQueue = requestQueue.filter(a => a !== queue);
+            requestQueue = requestQueue.filter((a) => a !== queue);
             return;
         }
 
@@ -184,17 +200,17 @@ class Grid extends react.Component {
         gridUpdateTabs = this.updateTabs.bind(this);
         gridUpdatePostsVisual = this.updatePostsVisual.bind(this);
 
-        const viewPort = document.querySelector("main .os-viewport");
+        this.configButton = new Spicetify.Menu.Item("Reddit config", false, openConfig);
+        this.configButton.register();
+
+        const viewPort = document.querySelector(this.viewportSelector);
         this.checkScroll = this.isScrolledBottom.bind(this);
         viewPort.addEventListener("scroll", this.checkScroll);
 
-        if (cardList.length) { // Already loaded
+        if (cardList.length) {
+            // Already loaded
             if (lastScroll > 0) {
                 viewPort.scrollTo(0, lastScroll);
-            }
-            if (requestAfter && requestAfter !== -1 && requestQueue.length > 0) {
-                // Resume the request that is canceled when app is unmounted
-                this.loadMore();
             }
             return;
         }
@@ -204,56 +220,76 @@ class Grid extends react.Component {
 
     componentWillUnmount() {
         gridUpdateTabs = gridUpdatePostsVisual = null;
-        const viewPort = document.querySelector("main .os-viewport");
+        const viewPort = document.querySelector(this.viewportSelector);
         lastScroll = viewPort.scrollTop;
         viewPort.removeEventListener("scroll", this.checkScroll);
+        this.configButton.deregister();
     }
 
     isScrolledBottom(event) {
         const viewPort = event.target;
-        if ((viewPort.scrollTop + viewPort.clientHeight) >= viewPort.scrollHeight) {
+        if (viewPort.scrollTop + viewPort.clientHeight >= viewPort.scrollHeight) {
             // At bottom, load more posts
             this.loadMore();
         }
     }
 
     render() {
-        return react.createElement("section", {
-            className: "contentSpacing"
-        }, react.createElement("div", {
-            className: "reddit-header"
-        }, react.createElement("h1", null, this.props.title), 
-        react.createElement(SortBox, {
-            onChange: this.updateSort.bind(this),
-            onServicesChange: this.updateTabs.bind(this),
-        })), react.createElement("div", {
-            id: "reddit-grid",
-            className: "main-gridContainer-gridContainer",
-            style: {
-                "--minimumColumnWidth": "180px"
+        return react.createElement(
+            "section",
+            {
+                className: "contentSpacing",
             },
-        }, [...cardList]), react.createElement("footer", {
-            style: {
-                margin: "auto",
-                textAlign: "center",
-            }
-        }, !this.state.endOfList && (this.state.rest ? react.createElement(LoadMoreIcon, { onClick: this.loadMore.bind(this) }) : react.createElement(LoadingIcon))
-        ), react.createElement(TopBarContent, {
-            switchCallback: this.switchTo.bind(this),
-            links: CONFIG.services,
-            activeLink: CONFIG.lastService,
-        }));
+            react.createElement(
+                "div",
+                {
+                    className: "reddit-header",
+                },
+                react.createElement("h1", null, this.props.title),
+                react.createElement(SortBox, {
+                    onChange: this.updateSort.bind(this),
+                    onServicesChange: this.updateTabs.bind(this),
+                })
+            ),
+            react.createElement(
+                "div",
+                {
+                    id: "reddit-grid",
+                    className: "main-gridContainer-gridContainer",
+                    style: {
+                        "--minimumColumnWidth": "180px",
+                    },
+                },
+                [...cardList]
+            ),
+            react.createElement(
+                "footer",
+                {
+                    style: {
+                        margin: "auto",
+                        textAlign: "center",
+                    },
+                },
+                !this.state.endOfList &&
+                    (this.state.rest ? react.createElement(LoadMoreIcon, { onClick: this.loadMore.bind(this) }) : react.createElement(LoadingIcon))
+            ),
+            react.createElement(TopBarContent, {
+                switchCallback: this.switchTo.bind(this),
+                links: CONFIG.services,
+                activeLink: CONFIG.lastService,
+            })
+        );
     }
 }
 
-async function getSubreddit(after = '') {
+async function getSubreddit(after = "") {
     // www is needed or it will block with "cross-origin" error.
-    var url = `https://www.reddit.com/r/${CONFIG.lastService}/${sortConfig.by}.json?limit=100&count=10&raw_json=1`
+    var url = `https://www.reddit.com/r/${CONFIG.lastService}/${sortConfig.by}.json?limit=100&count=10&raw_json=1`;
     if (after) {
-        url += `&after=${after}`
+        url += `&after=${after}`;
     }
     if (sortConfig.by.match(/top|controversial/) && sortConfig.time) {
-        url += `&t=${sortConfig.time}`
+        url += `&t=${sortConfig.time}`;
     }
 
     return await Spicetify.CosmosAsync.get(url);
@@ -261,32 +297,24 @@ async function getSubreddit(after = '') {
 
 async function fetchPlaylist(post) {
     try {
-        const res = await Spicetify.CosmosAsync.get(
-            `sp://core-playlist/v1/playlist/${post.uri}/metadata`,
-            {
-                policy: {
-                    name: true,
-                    picture: true,
-                    followed: true,
-                    followers: true,
-                    owner: {
-                        name: true
-                    }
-                }
-            }
-        )
+        const res = await Spicetify.CosmosAsync.get(`sp://core-playlist/v1/playlist/${post.uri}/metadata`, {
+            policy: {
+                name: true,
+                picture: true,
+                followers: true,
+            },
+        });
 
         const { metadata } = res;
-        return ({
-            type: "Playlist",
+        return {
+            type: typesLocale.playlist,
             uri: post.uri,
             title: metadata.name,
             subtitle: post.title,
             imageURL: "https://i.scdn.co/image/" + metadata.picture.split(":")[2],
             upvotes: post.upvotes,
             followersCount: metadata.followers,
-            isFollowing: metadata.followed,
-        });
+        };
     } catch {
         return null;
     }
@@ -294,68 +322,50 @@ async function fetchPlaylist(post) {
 
 async function fetchAlbum(post) {
     const arg = post.uri.split(":")[2];
-    const metadata = await Spicetify.CosmosAsync.get(`hm://album/v1/album-app/album/${arg}/desktop`)
-    return ({
-        type: "Album",
-        uri: post.uri,
-        title: metadata.name,
-        subtitle: metadata.artists.map(a => a.name).join(", "),
-        imageURL: metadata.cover.uri,
-        upvotes: post.upvotes,
-    });
+    try {
+        const metadata = await Spicetify.CosmosAsync.get(`hm://album/v1/album-app/album/${arg}/desktop`);
+        return {
+            type: typesLocale.album,
+            uri: post.uri,
+            title: metadata.name,
+            subtitle: metadata.artists,
+            imageURL: metadata.cover.uri,
+            upvotes: post.upvotes,
+        };
+    } catch {
+        return null;
+    }
 }
 
 async function fetchTrack(post) {
     const arg = post.uri.split(":")[2];
-    const metadata = await Spicetify.CosmosAsync.get(`https://api.spotify.com/v1/tracks/${arg}`)
-    return ({
-        type: "Track",
-        uri: post.uri,
-        title: metadata.name,
-        subtitle: metadata.artists.map(a => a.name).join(", "),
-        imageURL: metadata.album.images[0].url,
-        upvotes: post.upvotes,
-    });
+    try {
+        const metadata = await Spicetify.CosmosAsync.get(`https://api.spotify.com/v1/tracks/${arg}`);
+        return {
+            type: typesLocale.song,
+            uri: post.uri,
+            title: metadata.name,
+            subtitle: metadata.artists,
+            imageURL: metadata.album.images[0].url,
+            upvotes: post.upvotes,
+        };
+    } catch {
+        return null;
+    }
 }
 
 function postMapper(posts) {
     var mappedPosts = [];
-    posts.forEach(post => {
+    posts.forEach((post) => {
         var uri = URI.from(post.data.url);
-        if (uri && (
-            uri.type == "playlist" ||
-            uri.type == "playlist-v2" ||
-            uri.type == "track" ||
-            uri.type == "album"
-        )) {
+        if (uri && (uri.type == "playlist" || uri.type == "playlist-v2" || uri.type == "track" || uri.type == "album")) {
             mappedPosts.push({
                 uri: uri.toURI(),
                 type: uri.type,
                 title: post.data.title,
-                upvotes: post.data.ups
-            })
+                upvotes: post.data.ups,
+            });
         }
     });
     return mappedPosts;
-}
-
-async function getItemsMeta(posts) {
-    var promises = [];
-    for (const post of posts) {
-        switch (post.type) {
-            case "playlist":
-            case "playlist-v2":
-                promises.push(fetchPlaylist(post));
-                break;
-            case "track":
-                promises.push(fetchTrack(post));
-                break;
-            case "album":
-                promises.push(fetchAlbum(post));
-                break;
-        }
-    }
-
-    const results = await Promise.all(promises);
-    return results.filter(a => a);
 }

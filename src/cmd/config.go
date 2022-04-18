@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-ini/ini"
-	"github.com/khanhas/spicetify-cli/src/utils"
+	"github.com/spicetify/spicetify-cli/src/utils"
 )
 
 // EditConfig changes one or multiple config value
@@ -159,7 +159,9 @@ func stringType(section *ini.Section, field, value string) {
 	if err != nil {
 		utils.Fatal(err)
 	}
-
+	if len(strings.TrimSpace(value)) == 0 {
+		value = ""
+	}
 	key.SetValue(value)
 
 	changeSuccess(field, value)

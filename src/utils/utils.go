@@ -2,6 +2,7 @@ package utils
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -18,7 +19,7 @@ import (
 )
 
 // CheckExistAndCreate checks folder existence
-// and makes that folder, rescursively, if it does not exist
+// and makes that folder, recursively, if it does not exist
 func CheckExistAndCreate(dir string) {
 	_, err := os.Stat(dir)
 	if err != nil {
@@ -100,7 +101,7 @@ func Copy(src, dest string, recursive bool, filters []string) error {
 				return err
 			}
 		} else {
-			if filters != nil && len(filters) > 0 {
+			if len(filters) > 0 {
 				isMatch := false
 
 				for _, filter := range filters {
@@ -145,6 +146,7 @@ func CopyFile(srcPath, dest string) error {
 	}
 	defer fSrc.Close()
 
+	CheckExistAndCreate(dest)
 	destPath := filepath.Join(dest, filepath.Base(srcPath))
 	fDest, err := os.OpenFile(
 		destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0700)
@@ -235,7 +237,7 @@ func PrependTime(text string) string {
 }
 
 // FindSymbol uses regexp from one or multiple clues to find variable or
-// function symbol in obfursted code.
+// function symbol in obfuscated code.
 func FindSymbol(debugInfo, content string, clues []string) []string {
 	for _, v := range clues {
 		re := regexp.MustCompile(v)
@@ -246,7 +248,7 @@ func FindSymbol(debugInfo, content string, clues []string) []string {
 	}
 
 	if len(debugInfo) > 0 {
-		PrintError("Cannot find symbol for " + debugInfo)
+		PrintError("cannot find symbol for " + debugInfo)
 	}
 
 	return nil
@@ -280,10 +282,32 @@ func SeekToCloseParen(content string, regexpTerm string, leftChar, rightChar byt
 			}
 			end += 1
 			if count == 0 {
-				break;
+				break
 			}
 		}
 		return content[start:end]
 	}
-	return "";
+	return ""
+}
+
+type AppManifest struct {
+	Files          []string `json:"subfiles"`
+	ExtensionFiles []string `json:"subfiles_extension"`
+}
+
+func GetAppManifest(app string) (AppManifest, string, error) {
+	customAppPath, err := GetCustomAppPath(app)
+	if err != nil {
+		PrintError(`Custom app "` + app + `" not found.`)
+		return AppManifest{}, customAppPath, err
+	}
+	manifestFileContent, err := os.ReadFile(filepath.Join(customAppPath, "manifest.json"))
+	if err != nil {
+		manifestFileContent = []byte{'{', '}'}
+	}
+	var manifestJson AppManifest
+	if err = json.Unmarshal(manifestFileContent, &manifestJson); err == nil {
+		return manifestJson, customAppPath, err
+	}
+	return manifestJson, customAppPath, err
 }

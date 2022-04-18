@@ -5,17 +5,17 @@ import (
 	"log"
 	"os"
 
-	spotifystatus "github.com/khanhas/spicetify-cli/src/status/spotify"
+	spotifystatus "github.com/spicetify/spicetify-cli/src/status/spotify"
 
-	"github.com/khanhas/spicetify-cli/src/backup"
-	"github.com/khanhas/spicetify-cli/src/preprocess"
-	backupstatus "github.com/khanhas/spicetify-cli/src/status/backup"
-	"github.com/khanhas/spicetify-cli/src/utils"
+	"github.com/spicetify/spicetify-cli/src/backup"
+	"github.com/spicetify/spicetify-cli/src/preprocess"
+	backupstatus "github.com/spicetify/spicetify-cli/src/status/backup"
+	"github.com/spicetify/spicetify-cli/src/utils"
 )
 
 // Backup stores original apps packages, extracts them and preprocesses
 // extracted apps' assets
-func Backup() {
+func Backup(spicetifyVersion string) {
 	backupVersion := backupSection.Key("version").MustString("")
 	backStat := backupstatus.Get(prefsPath, backupFolder, backupVersion)
 	if !backStat.IsEmpty() {
@@ -53,16 +53,13 @@ func Backup() {
 	}
 
 	utils.PrintBold("Extracting:")
-	tracker := utils.NewTracker(totalApp)
-
-	backup.Extract(backupFolder, rawFolder, tracker.Update)
-	tracker.Finish()
-
-	tracker.Reset()
+	backup.Extract(backupFolder, rawFolder)
+	utils.PrintGreen("OK")
 
 	utils.PrintBold("Preprocessing:")
 
 	preprocess.Start(
+		spicetifyVersion,
 		rawFolder,
 		preprocess.Flag{
 			DisableSentry:  preprocSection.Key("disable_sentry").MustBool(false),
@@ -71,22 +68,19 @@ func Backup() {
 			ExposeAPIs:     preprocSection.Key("expose_apis").MustBool(false),
 			DisableUpgrade: preprocSection.Key("disable_upgrade_check").MustBool(false),
 		},
-		tracker.Update,
 	)
-
-	tracker.Finish()
+	utils.PrintGreen("OK")
 
 	err = utils.Copy(rawFolder, themedFolder, true, []string{".html", ".js", ".css"})
 	if err != nil {
 		utils.Fatal(err)
 	}
 
-	tracker.Reset()
-
-	preprocess.StartCSS(themedFolder, tracker.Update)
-	tracker.Finish()
+	preprocess.StartCSS(themedFolder)
+	utils.PrintGreen("OK")
 
 	backupSection.Key("version").SetValue(utils.GetSpotifyVersion(prefsPath))
+	backupSection.Key("with").SetValue(spicetifyVersion)
 	cfg.Write()
 	utils.PrintSuccess("Everything is ready, you can start applying now!")
 }
@@ -123,6 +117,7 @@ func clearBackup() {
 	os.Mkdir(themedFolder, 0700)
 
 	backupSection.Key("version").SetValue("")
+	backupSection.Key("with").SetValue("")
 	cfg.Write()
 	utils.PrintSuccess("Backup is cleared.")
 }

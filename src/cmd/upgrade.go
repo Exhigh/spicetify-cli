@@ -1,25 +1,19 @@
 package cmd
 
 import (
-	"encoding/json"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 
-	"github.com/khanhas/spicetify-cli/src/utils"
+	"github.com/spicetify/spicetify-cli/src/utils"
 )
-
-type githubRelease struct {
-	TagName string `json:"tag_name"`
-}
 
 func Upgrade(currentVersion string) {
 	utils.PrintBold("Fetch latest release info:")
-	tagName, err := FetchLatestTag()
+	tagName, err := utils.FetchLatestTag()
 	if err != nil {
 		utils.PrintError("Cannot fetch latest release info")
 		utils.PrintError(err.Error())
@@ -34,18 +28,30 @@ func Upgrade(currentVersion string) {
 		return
 	}
 
-	var assetURL string = "https://github.com/khanhas/spicetify-cli/releases/download/v" + tagName + "/spicetify-" + tagName
+	var assetURL string = "https://github.com/spicetify/spicetify-cli/releases/download/v" + tagName + "/spicetify-" + tagName
 	var location string
 	switch runtime.GOOS {
 	case "windows":
-		assetURL += "-windows-x64.zip"
-		location = os.Getenv("TEMP") + "spicetify-" + tagName + ".zip"
+		if runtime.GOARCH == "386" {
+			assetURL += "-windows-x32.zip"
+		} else {
+			assetURL += "-windows-x64.zip"
+		}
+		location = os.TempDir() + "/spicetify-" + tagName + ".zip"
 	case "linux":
-		assetURL += "-linux-amd64.tar.gz"
-		location = "/tmp/spicetify-" + tagName + ".tar.gz"
+		if runtime.GOARCH == "arm64" {
+			assetURL += "-linux-arm64.tar.gz"
+		} else {
+			assetURL += "-linux-amd64.tar.gz"
+		}
+		location = os.TempDir() + "/spicetify-" + tagName + ".tar.gz"
 	case "darwin":
-		assetURL += "-darwin-amd64.tar.gz"
-		location = os.Getenv("TMPDIR") + "spicetify-" + tagName + ".tar.gz"
+		if runtime.GOARCH == "arm64" {
+			assetURL += "-darwin-arm64.tar.gz"
+		} else {
+			assetURL += "-darwin-amd64.tar.gz"
+		}
+		location = os.TempDir() + "/spicetify-" + tagName + ".tar.gz"
 	}
 
 	utils.PrintBold("Downloading:")
@@ -97,29 +103,11 @@ func Upgrade(currentVersion string) {
 	utils.CheckExistAndDelete(exeOld)
 	utils.PrintGreen("OK")
 	utils.PrintSuccess("spicetify is up-to-date.")
+	utils.PrintInfo(`Please run "spicetify restore backup apply" to receive new features and bug fixes`)
 }
 
 func permissionError(err error) {
 	utils.PrintInfo("If fatal error is \"Permission denied\", please check read/write permission of spicetify executable directory.")
 	utils.PrintInfo("However, if you used a package manager to install spicetify, please upgrade by using the same package manager.")
 	utils.Fatal(err)
-}
-
-func FetchLatestTag() (string, error) {
-	res, err := http.Get("https://api.github.com/repos/khanhas/spicetify-cli/releases/latest")
-	if err != nil {
-		return "", err
-	}
-
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return "", err
-	}
-
-	var release githubRelease
-	if err = json.Unmarshal(body, &release); err != nil {
-		return "", err
-	}
-
-	return release.TagName[1:], nil
 }

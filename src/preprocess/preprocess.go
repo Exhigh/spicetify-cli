@@ -2,18 +2,19 @@ package preprocess
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
-	"sync"
 	"unicode"
 
-	"github.com/khanhas/spicetify-cli/src/utils"
+	"github.com/spicetify/spicetify-cli/src/utils"
 )
 
 // Flag enables/disables preprocesses to be applied
@@ -35,31 +36,57 @@ type jsMap struct {
 	SourcesContent []string `json:"sourcesContent"`
 }
 
+func readRemoteCssMap(tag string, cssTranslationMap *map[string]string) error {
+	var cssMapURL string = "https://raw.githubusercontent.com/spicetify/spicetify-cli/" + tag + "/css-map.json"
+	cssMapResp, err := http.Get(cssMapURL)
+	if err != nil {
+		return err
+	} else {
+		err := json.NewDecoder(cssMapResp.Body).Decode(cssTranslationMap)
+		if err != nil {
+			utils.PrintWarning("Remote CSS map JSON malformed.")
+		}
+	}
+	return nil
+}
+
+func readLocalCssMap(cssTranslationMap *map[string]string) error {
+	cssMapLocalPath := path.Join(utils.GetExecutableDir(), "css-map.json")
+	cssMapContent, err := os.ReadFile(cssMapLocalPath)
+	if err != nil {
+		utils.PrintWarning("Cannot read local CSS map.")
+		return err
+	} else {
+		err = json.Unmarshal(cssMapContent, cssTranslationMap)
+		if err != nil {
+			utils.PrintWarning("Local CSS map JSON malformed.")
+			return err
+		}
+	}
+	return nil
+}
+
 // Start preprocessing apps assets in extractedAppPath
-func Start(extractedAppsPath string, flags Flag, callback func(appName string)) {
+func Start(version string, extractedAppsPath string, flags Flag) {
 	appPath := filepath.Join(extractedAppsPath, "xpui")
 	var cssTranslationMap = make(map[string]string)
 	// readSourceMapAndGenerateCSSMap(appPath)
 
-	var cssMapURL string = "https://raw.githubusercontent.com/khanhas/spicetify-cli/master/css-map.json"
-	cssMapResp, err := http.Get(cssMapURL)
-	if err != nil {
-		utils.PrintInfo("Cannot fetch remote CSS map. Using local CSS map instead...")
-		cssMapLocalPath := path.Join(utils.GetExecutableDir(), "css-map.json")
-		cssMapContent, err := os.ReadFile(cssMapLocalPath)
+	if version != "Dev" {
+		tag, err := FetchLatestTagMatchingOrMaster(version)
 		if err != nil {
-			utils.PrintWarning("Cannot read local CSS map either.")
-		} else {
-			err = json.Unmarshal(cssMapContent, &cssTranslationMap)
-			if err != nil {
-				utils.PrintWarning("Local CSS map JSON malformed.")
-			}
+			utils.PrintWarning("Cannot fetch version tag for CSS mappings")
+			fmt.Printf("err: %v\n", err)
+			tag = version
+		}
+		utils.PrintInfo("Fetching remote CSS map for newer compatible tag version: " + tag)
+		if readRemoteCssMap(tag, &cssTranslationMap) != nil {
+			utils.PrintInfo("Cannot fetch remote CSS map. Using local CSS map instead...")
+			readLocalCssMap(&cssTranslationMap)
 		}
 	} else {
-		err := json.NewDecoder(cssMapResp.Body).Decode(&cssTranslationMap)
-		if err != nil {
-			utils.PrintWarning("Remote CSS map JSON malformed.")
-		}
+		utils.PrintInfo("In development environment, using local CSS map")
+		readLocalCssMap(&cssTranslationMap)
 	}
 
 	filepath.Walk(appPath, func(path string, info os.FileInfo, err error) error {
@@ -69,7 +96,7 @@ func Start(extractedAppsPath string, flags Flag, callback func(appName string)) 
 		switch extension {
 		case ".js":
 			utils.ModifyFile(path, func(content string) string {
-				if flags.DisableSentry {
+				if flags.DisableSentry && fileName == "vendor~xpui.js" {
 					content = disableSentry(content)
 				}
 
@@ -92,6 +119,9 @@ func Start(extractedAppsPath string, flags Flag, callback func(appName string)) 
 					utils.Replace(&content, k, v)
 				}
 				content = colorVariableReplaceForJS(content)
+
+				// Webpack name changed from v1.1.72
+				utils.Replace(&content, "webpackChunkclient_web", "webpackChunkopen")
 				return content
 			})
 		case ".css":
@@ -117,11 +147,13 @@ func Start(extractedAppsPath string, flags Flag, callback func(appName string)) 
 
 		case ".html":
 			utils.ModifyFile(path, func(content string) string {
-				utils.Replace(&content, `</head>`, `<link rel="stylesheet" class="userCSS" href="user.css"></head>`)
-
 				var tags string
+				tags += `<link rel="stylesheet" class="userCSS" href="colors.css">` + "\n"
+				tags += `<link rel="stylesheet" class="userCSS" href="user.css">` + "\n"
+
 				if flags.ExposeAPIs {
-					tags += `<script src="spicetifyWrapper.js"></script>`
+					tags += `<script src="helper/spicetifyWrapper.js"></script>` + "\n"
+					tags += `<!-- spicetify helpers -->` + "\n"
 				}
 
 				utils.Replace(&content, `<body>`, "${0}\n"+tags)
@@ -137,35 +169,14 @@ func Start(extractedAppsPath string, flags Flag, callback func(appName string)) 
 
 // StartCSS modifies all CSS files in extractedAppsPath to change
 // all colors value with CSS variables.
-func StartCSS(extractedAppsPath string, callback func(appName string)) {
-	appList, err := ioutil.ReadDir(extractedAppsPath)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var wg sync.WaitGroup
-
-	for _, app := range appList {
-		wg.Add(1)
-		appName := app.Name()
-		appPath := filepath.Join(extractedAppsPath, appName)
-
-		go func() {
-			defer wg.Done()
-
-			filepath.Walk(appPath, func(path string, info os.FileInfo, err error) error {
-				if filepath.Ext(info.Name()) == ".css" {
-					utils.ModifyFile(path, colorVariableReplace)
-				}
-				return nil
-			})
-
-			callback(appName)
-		}()
-	}
-
-	wg.Wait()
+func StartCSS(extractedAppsPath string) {
+	appPath := filepath.Join(extractedAppsPath, "xpui")
+	filepath.Walk(appPath, func(path string, info os.FileInfo, err error) error {
+		if filepath.Ext(info.Name()) == ".css" {
+			utils.ModifyFile(path, colorVariableReplace)
+		}
+		return nil
+	})
 }
 
 func colorVariableReplace(content string) string {
@@ -214,13 +225,13 @@ func colorVariableReplace(content string) string {
 func colorVariableReplaceForJS(content string) string {
 	utils.Replace(&content, "#1db954", "var(--spice-button)")
 	utils.Replace(&content, "#b3b3b3", "var(--spice-subtext)")
+	utils.Replace(&content, `#ffffff`, `var(--spice-text)`)
+	utils.Replace(&content, `color:"white"`, `color:"var(--spice-text)"`)
 	return content
 }
 
 func disableSentry(input string) string {
-	// utils.Replace(&input, `sentry\.install\(\)[,;]`, "")
-	utils.Replace(&input, `;if\(\w+\.type===\w+\.\w+\.LOG_INTERACTION`, ";return${0}")
-	utils.Replace(&input, `\("https://\w+@sentry.io/\d+"`, `;("https://null@127.0.0.1/0"`)
+	utils.Replace(&input, `prototype\.bindClient=function\(\w+\)\{`, "${0}return;")
 	return input
 }
 
@@ -249,17 +260,6 @@ func removeRTL(input string) string {
 }
 
 func exposeAPIs_main(input string) string {
-	// Player
-	utils.Replace(
-		&input,
-		`this\._cosmos=(\w+),this\._defaultFeatureVersion=\w+`,
-		`(globalThis.Spicetify.Player.origin=this),${0}`)
-
-	utils.Replace(
-		&input,
-		`,this.player=\w+,`,
-		`,(globalThis.Spicetify.Player.origin2=this)${0}`)
-
 	// Show Notification
 	utils.Replace(
 		&input,
@@ -279,42 +279,37 @@ func exposeAPIs_main(input string) string {
 		`\w+\(\)\.createElement\(\w+,\{onChange:this\.handleSaberStateChange\}\),`,
 		"")
 
-	utils.Replace(
+	// React Hook
+	utils.ReplaceOnce(
 		&input,
-		`;class \w+ extends (\w+)\(\).Component`,
-		`;Spicetify.React=${1}()${0}`)
+		`(\w+=\(\w+,(\w+)\.lazy\)\(?\((?:\(\)=>|function\(\)\{return )\w+\.\w+\((?:\d+)?\)\.then\(\w+\.bind\(\w+,\w+\)\)\}?\)\)?),`,
+		`${1};Spicetify.React=${2};var `)
 
 	utils.Replace(
 		&input,
 		`"data-testid":`,
 		`"":`)
 
-	reAllAPIPromises := regexp.MustCompile(`await Promise.all\(\[([\w\(\)\.,]+?)\]\)([;,])`)
+	reAllAPIPromises := regexp.MustCompile(`return ?(?:function\(\))?\{(?:[ \w\.,\(\)\{\}]+)?((?:get\w+:(?:\(\)=>|function\(\)\{return ?)(?:[\w$]+|[(){}]+)\}?,?)+)[\}\)]+;`)
 	allAPIPromises := reAllAPIPromises.FindAllStringSubmatch(input, -1)
 	for _, found := range allAPIPromises {
 		splitted := strings.Split(found[1], ",")
-		if len(splitted) > 15 { // Actual number is about 24
-			re := regexp.MustCompile(`\w+\.(\w+)\(\)`)
-			code := "Spicetify.Platform = {"
-
+		if len(splitted) > 15 { // Actual number is about 34
+			matchMap := regexp.MustCompile(`get(\w+):(?:\(\)=>|function\(\)\{return ?)([\w$]+|\{\})\}?,?`)
+			code := "Spicetify.Platform={};"
 			for _, apiFunc := range splitted {
-				name := re.ReplaceAllString(apiFunc, `${1}`)
-
-				if strings.HasPrefix(name, "get") {
-					name = strings.Replace(name, "get", "", 1)
-				}
-
-				code += name + ": await " + apiFunc + ","
+				matches := matchMap.FindStringSubmatch(apiFunc)
+				code += "Spicetify.Platform[\"" + fmt.Sprint(matches[1]) + "\"]=" + fmt.Sprint(matches[2]) + ";"
 			}
-
-			code += "};"
-			if found[2] == "," { // Future proof
-				code = "undefined;" + code + "var "
-			}
-
-			input = strings.Replace(input, found[0], found[0]+code, 1)
+			input = strings.Replace(input, found[0], code+found[0], 1)
 		}
 	}
+
+	// Player
+	utils.Replace(
+		&input,
+		`(Spicetify.Platform\["PlayerAPI"\]=)`,
+		`${1}Spicetify.Player.origin=`)
 
 	// Profile Menu hook v1.1.56
 	utils.Replace(
@@ -330,6 +325,60 @@ Spicetify.React.useEffect(() => {
 	container._tippy = { props: { onClickOutside: ${1} }};
 	Spicetify.Menu._addItems(container);
 }, []);`)
+
+	// React Component: Context Menu and Right Click Menu
+	utils.Replace(
+		&input,
+		`=(?:function\()?(\w+)(?:=>|\)\{return )(\w+\(\)\.createElement\(([\w\.]+),\w*\((\w+,[\w\.]+)?\)\(\{\},\w+,\{action:"open",trigger:"right-click"\}\)\))\}?`,
+		`=Spicetify.ReactComponent.RightClickMenu=${1}=>${2};Spicetify.ReactComponent.ContextMenu=${3};`)
+
+	// React Component: Context Menu - Menu
+	utils.Replace(
+		&input,
+		`=(?:function\(\w\)\{\w+ \w=\w.children,\w=\w.onClose,\w=\w.getInitialFocusElement|\(\{children:\w+,onClose:\w+,getInitialFocusElement:\w+\}\))`,
+		`=Spicetify.ReactComponent.Menu${0}`)
+
+	// React Component: Context Menu - Menu Item
+	utils.Replace(
+		&input,
+		`=(?:\w+=>|function)(?:\{let|\(\w+\)\{var \w+,\w+=\w+.children,\w+=\w+.icon)(?:\{children:\w+,icon:\w+)?`,
+		`=Spicetify.ReactComponent.MenuItem${0}`)
+
+	// React Component: Album Context Menu items
+	utils.Replace(
+		&input,
+		`(const \w+)(=\w+\(\)\.memo\(\(\(\{uri:\w+,sharingInfo:\w+,onRemoveCallback:\w+\}\)=>\w+\(\)\.createElement\([\w\.]+,\{value:"album"\})`,
+		`${1}=Spicetify.ReactComponent.AlbumMenu${2}`)
+
+	// React Component: Show Context Menu items
+	utils.Replace(
+		&input,
+		`(const \w+)(=\w+\(\)\.memo\(\(\(\{uri:\w+,sharingInfo:\w+,onRemoveCallback:\w+\}\)=>\w+\(\)\.createElement\([\w\.]+,\{value:"show"\})`,
+		`${1}=Spicetify.ReactComponent.PodcastShowMenu${2}`)
+
+	// React Component: Artist Context Menu items
+	utils.Replace(
+		&input,
+		`(const \w+)(=\w+\(\)\.memo\(\(\(\{uri:\w+,sharingInfo:\w+,onRemoveCallback:\w+\}\)=>\w+\(\)\.createElement\([\w\.]+,\{value:"artist"\})`,
+		`${1}=Spicetify.ReactComponent.ArtistMenu${2}`)
+
+	// React Component: Playlist Context Menu items
+	utils.Replace(
+		&input,
+		`(const \w+)(=\w+\(\)\.memo\(\(\(\{uri:\w+,onRemoveCallback:\w+\}\))`,
+		`${1}=Spicetify.ReactComponent.PlaylistMenu${2}`)
+
+	// Locale
+	utils.Replace(
+		&input,
+		`this\._dictionary=\{\},`,
+		`${0}Spicetify.Locale=this,`)
+
+	// Prevent breaking popupLyrics
+	utils.Replace(
+		&input,
+		`document.pictureInPictureElement&&\(\w+.current=[!\w]+,document\.exitPictureInPicture\(\)\),\w+\.current=null`,
+		``)
 
 	return input
 }
@@ -352,18 +401,18 @@ func exposeAPIs_vendor(input string) string {
 		&input,
 		`\w+\("onMount",\[(\w+)\]\)`,
 		`${0};
-if (G.popper?.firstChild?.id === "context-menu") {
-    const container = G.popper.firstChild;
+if (${1}.popper?.firstChild?.id === "context-menu") {
+    const container = ${1}.popper.firstChild;
 	if (!container.children.length) {
 		const observer = new MutationObserver(() => {
-			Spicetify.ContextMenu._addItems(G.popper);
+			Spicetify.ContextMenu._addItems(${1}.popper);
 			observer.disconnect();
 		});
 		observer.observe(container, { childList: true });
     } else if (container.firstChild.classList.contains("main-userWidget-dropDownMenu")) {
-        Spicetify.Menu._addItems(G.popper);
+        Spicetify.Menu._addItems(${1}.popper);
     } else {
-		Spicetify.ContextMenu._addItems(G.popper);
+		Spicetify.ContextMenu._addItems(${1}.popper);
 	}
 };0`)
 
@@ -467,4 +516,87 @@ func readSourceMapAndGenerateCSSMap(appPath string) {
 	} else {
 		println("CSS Map generator failed")
 	}
+}
+
+type githubRelease = utils.GithubRelease
+
+func splitVersion(version string) ([3]int, error) {
+	vstring := version
+	if vstring[0:1] == "v" {
+		vstring = version[1:]
+	}
+	vSplit := strings.Split(vstring, ".")
+	var vInts [3]int
+	if len(vSplit) != 3 {
+		return [3]int{}, errors.New("Invalid version string")
+	}
+	for i := 0; i < 3; i++ {
+		conv, err := strconv.Atoi(vSplit[i])
+		if err != nil {
+			return [3]int{}, nil
+		}
+		vInts[i] = conv
+	}
+	return vInts, nil
+}
+
+func FetchLatestTagMatchingOrMaster(version string) (string, error) {
+	tag, err := utils.FetchLatestTag()
+	if err != nil {
+		return "", err
+	}
+	ver, err := splitVersion(tag)
+	if err != nil {
+		return "", err
+	}
+	versionS, err := splitVersion(version)
+	if err != nil {
+		return "", err
+	}
+	// major version matches latest, use master branch
+	if ver[0] == versionS[0] && ver[1] == versionS[1] {
+		return "master", nil
+	} else {
+		return FetchLatestTagMatchingVersion(version)
+	}
+}
+
+func FetchLatestTagMatchingVersion(version string) (string, error) {
+	if version == "Dev" {
+		return "Dev", nil
+	}
+	res, err := http.Get("https://api.github.com/repos/spicetify/spicetify-cli/releases")
+	if err != nil {
+		return "", err
+	}
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var releases []githubRelease
+	if err = json.Unmarshal(body, &releases); err != nil {
+		return "", err
+	}
+	curVer := strings.Split(version, ".")
+	curVerMin, err2 := strconv.Atoi(curVer[2])
+	if err2 != nil {
+		return "", err2
+	}
+	for _, rel := range releases {
+		ver := strings.Split(rel.TagName[1:], ".")
+		if len(ver) != 3 {
+			break
+		} else {
+			verMin, err := strconv.Atoi(ver[2])
+			if err != nil {
+				return "", err
+			}
+			if ver[0] == curVer[0] && ver[1] == curVer[1] && verMin > curVerMin {
+				curVerMin = verMin
+			}
+		}
+	}
+	return "v" + curVer[0] + "." + curVer[1] + "." + strconv.Itoa(curVerMin), nil
 }

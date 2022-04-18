@@ -1,9 +1,10 @@
 package backup
 
 import (
+	"os"
 	"path/filepath"
 
-	"github.com/khanhas/spicetify-cli/src/utils"
+	"github.com/spicetify/spicetify-cli/src/utils"
 )
 
 // Start backing up Spotify Apps folder to backupPath
@@ -12,21 +13,20 @@ func Start(appPath, backupPath string) error {
 }
 
 // Extract all SPA files from backupPath to extractPath
-// and call `callback` at every successfully extracted app
-func Extract(backupPath, extractPath string, callback func(finishedApp string)) {
-	apps := []string{"xpui", "login", "settings", "glue-resources"}
+func Extract(backupPath, extractPath string) {
+	// TODO: "settings" no longer exists in > 1.1.62, remove it when Linux Spotify is updated.
+	for _, app := range []string{"xpui", "login", "settings"} {
+		appPath := filepath.Join(backupPath, app+".spa")
+		appExtractToFolder := filepath.Join(extractPath, app)
 
-	for _, v := range apps {
-		appPath := filepath.Join(backupPath, v + ".spa")
-		appName := v
+		_, err := os.Stat(appPath)
+		if err != nil {
+			continue
+		}
 
-		appExtractToFolder := filepath.Join(extractPath, appName)
-
-		err := utils.Unzip(appPath, appExtractToFolder)
+		err = utils.Unzip(appPath, appExtractToFolder)
 		if err != nil {
 			utils.Fatal(err)
 		}
-
-		callback(appName)
 	}
 }

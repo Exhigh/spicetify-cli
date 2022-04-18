@@ -19,14 +19,7 @@ const ProviderGenius = (function () {
         return acc.trim();
     }
 
-    async function getNote(el) {
-        let id = el.pathname.match(/\/(\d+)\//);
-        if (!id) {
-            id = el.dataset.id;
-        } else {
-            id = id[1];
-        }
-        
+    async function getNote(id) {
         const body = await CosmosAsync.get(`https://genius.com/api/annotations/${id}`);
         const response = body.response;
         let note = "";
@@ -66,13 +59,14 @@ const ProviderGenius = (function () {
                 persistent: false,
                 onSuccess: resolve,
                 onFailure: reject,
-            })
+            });
         });
     }
 
-    async function downloadLyricFromLink(result) {
+    async function fetchLyricsVersion(results, index) {
+        const result = results[index];
         if (!result) {
-            console.warn(info)
+            console.warn(result);
             return;
         }
 
@@ -87,19 +81,31 @@ const ProviderGenius = (function () {
             return lyrics[1];
         }
 
-        const lyricsSections = body.match(/<div class="Lyrics__Container.+?>.+?<\/div>/sg);
-        if (!lyricsSections) {
-            return null;
+        let lyricsSections = body.match(/<div class="Lyrics__Container.+?>.+?<\/div>/gs);
+        if (lyricsSections) {
+            lyrics = "";
+            for (const section of lyricsSections) {
+                const fragment = section.match(/<div class="Lyrics__Container.+?>(.+?)<\/div>/s);
+                if (fragment) {
+                    lyrics += fragment[1];
+                }
+            }
+            return lyrics;
         }
 
-        lyrics = "";
-        for (const section of lyricsSections) {
-            const fragment = section.match(/<div class="Lyrics__Container.+?>(.+?)<\/div>/s);
-            if (fragment) {
-                lyrics += fragment[1];
+        lyricsSections = body.match(/<div ([\w-]+=[\w"]+ )+class="Lyrics__Container.+?>.+?<\/div>/gs);
+        if (lyricsSections) {
+            lyrics = "";
+            for (const section of lyricsSections) {
+                const fragment = section.match(/<div ([\w-]+=[\w"]+ )+class="Lyrics__Container.+?>(.+?)<\/div>/s);
+                if (fragment) {
+                    lyrics += fragment[2];
+                }
             }
+            return lyrics;
         }
-        if (!lyrics.length) {
+
+        if (!lyrics?.length) {
             console.warn("forceError");
             return null;
         }
@@ -108,25 +114,39 @@ const ProviderGenius = (function () {
     }
 
     async function fetchLyrics(info) {
-        const url = `https://genius.com/api/search/song?per_page=10&q=${encodeURIComponent(info.artist)}%20${encodeURIComponent(info.title)}`;
+        const titles = new Set([info.title]);
 
-        const geniusSearch = await CosmosAsync.get(url);
+        const titleNoExtra = Utils.removeExtraInfo(info.title);
+        titles.add(titleNoExtra);
+        titles.add(Utils.removeSongFeat(info.title));
+        titles.add(Utils.removeSongFeat(titleNoExtra));
+        console.log(titles);
 
-        const hits = geniusSearch.response.sections[0].hits
-            .map(item => ({
+        let lyrics, hits;
+        for (const title of titles) {
+            const url = `https://genius.com/api/search/song?per_page=20&q=${encodeURIComponent(title)}%20${encodeURIComponent(info.artist)}`;
+
+            const geniusSearch = await CosmosAsync.get(url);
+
+            hits = geniusSearch.response.sections[0].hits.map((item) => ({
                 title: item.result.full_title,
                 url: item.result.url,
             }));
 
-        if (!hits.length) {
-            return null;
+            if (!hits.length) {
+                continue;
+            }
+
+            lyrics = await fetchLyricsVersion(hits, 0);
+            break;
         }
 
-        const lyrics = await downloadLyricFromLink(hits[0]);
+        if (!lyrics) {
+            return { lyrics: null, versions: [] };
+        }
 
-        // TODO: Other versions selections
-        return lyrics;
+        return { lyrics, versions: hits };
     }
 
-    return { fetchLyrics, getNote }
+    return { fetchLyrics, getNote, fetchLyricsVersion };
 })();

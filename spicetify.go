@@ -6,14 +6,15 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"sync"
 
-	"github.com/khanhas/spicetify-cli/src/cmd"
-	"github.com/khanhas/spicetify-cli/src/utils"
 	colorable "github.com/mattn/go-colorable"
+	"github.com/spicetify/spicetify-cli/src/cmd"
+	"github.com/spicetify/spicetify-cli/src/utils"
 )
 
-const (
-	version = "2.2.3"
+var (
+	version string
 )
 
 var (
@@ -22,6 +23,7 @@ var (
 	quiet          = false
 	extensionFocus = false
 	appFocus       = false
+	styleFocus     = false
 	noRestart      = false
 	liveUpdate     = false
 )
@@ -32,6 +34,9 @@ func init() {
 		runtime.GOOS != "linux" {
 		utils.PrintError("Unsupported OS.")
 		os.Exit(1)
+	}
+	if version == "" {
+		version = "Dev"
 	}
 
 	log.SetFlags(0)
@@ -75,13 +80,21 @@ func init() {
 			os.Exit(0)
 		case "-e", "--extension":
 			extensionFocus = true
+			liveUpdate = true
 		case "-a", "--app":
 			appFocus = true
+			liveUpdate = true
 		case "-q", "--quiet":
 			quiet = true
 		case "-n", "--no-restart":
 			noRestart = true
+		case "-s", "--style":
+			styleFocus = true
+			liveUpdate = true
 		case "-l", "--live-update":
+			extensionFocus = true
+			appFocus = true
+			styleFocus = true
 			liveUpdate = true
 		}
 	}
@@ -100,7 +113,9 @@ func init() {
 }
 
 func main() {
-	// Non-chainable commands
+	cmd.InitPaths()
+
+	// Unchainable commands
 	switch commands[0] {
 	case "config":
 		commands = commands[1:]
@@ -112,6 +127,7 @@ func main() {
 			cmd.EditConfig(commands)
 		}
 		return
+
 	case "color":
 		commands = commands[1:]
 		if len(commands) == 0 {
@@ -119,6 +135,10 @@ func main() {
 		} else {
 			cmd.EditColor(commands)
 		}
+		return
+
+	case "config-dir":
+		cmd.ShowConfigDirectory()
 		return
 
 	case "path":
@@ -152,41 +172,57 @@ func main() {
 	case "upgrade":
 		cmd.Upgrade(version)
 		return
-	}
 
-	utils.PrintBold("spicetify v" + version)
-	cmd.CheckUpgrade(version)
-
-	cmd.InitPaths()
-
-	// Unchainable commands
-	switch commands[0] {
 	case "watch":
 		var name []string
 		if len(commands) > 1 {
 			name = commands[1:]
 		}
+
+		var watchGroup sync.WaitGroup
+
 		if extensionFocus {
-			cmd.WatchExtensions(name, liveUpdate)
-		} else if appFocus {
-			cmd.WatchCustomApp(name, liveUpdate)
-		} else {
-			cmd.Watch(liveUpdate)
+			watchGroup.Add(1)
+			go func(name []string, liveUpdate bool) {
+				defer watchGroup.Done()
+				cmd.WatchExtensions(name, liveUpdate)
+			}(name, liveUpdate)
 		}
+
+		if appFocus {
+			watchGroup.Add(1)
+			go func(name []string, liveUpdate bool) {
+				defer watchGroup.Done()
+				cmd.WatchCustomApp(name, liveUpdate)
+			}(name, liveUpdate)
+		}
+
+		if styleFocus {
+			watchGroup.Add(1)
+			go func(liveUpdate bool) {
+				defer watchGroup.Done()
+				cmd.Watch(liveUpdate)
+			}(liveUpdate)
+		}
+
+		watchGroup.Wait()
 		return
 	}
+
+	utils.PrintBold("spicetify v" + version)
+	cmd.CheckUpgrade(version)
 
 	// Chainable commands
 	for _, v := range commands {
 		switch v {
 		case "backup":
-			cmd.Backup()
+			cmd.Backup(version)
 
 		case "clear":
 			cmd.Clear()
 
 		case "apply":
-			cmd.Apply()
+			cmd.Apply(version)
 			restartSpotify()
 
 		case "update":
@@ -212,7 +248,7 @@ func main() {
 			cmd.RestartSpotify()
 
 		case "auto":
-			cmd.Auto()
+			cmd.Auto(version)
 			restartSpotify()
 
 		default:
@@ -255,14 +291,19 @@ disable-devtool     Disable Spotify's developer tools.
 
 watch               Enter watch mode.
                     On default, update CSS on color.ini or user.css's changes.
-                    Use with flag "-e" to update extensions on changes.
+                    To update on change, use with any combination of the following flags: 
+						  "-e" (for extensions), 
+						  "-a" (for custom apps), 
+						  "-s" (for the active theme, color.ini and user.css) 
+						  "-l" (for extensions, custom apps, and active theme)
+
 
 restart             Restart Spotify client.
 
 ` + utils.Bold("NON-CHAINABLE COMMANDS") + `
 path                Print path of color, css, extension file or
                     custom app directory and quit.
-                    1. Print all theme's assests:
+                    1. Print all theme's assets:
                     spicetify path
                     2. Print theme's color.ini path:
                     spicetify path color
@@ -323,6 +364,8 @@ color               1. Print all color fields and values.
                     - Change slider_bg to 00ff00 and pressing_fg to 0000ff
                     spicetify color slider_bg 00ff00 pressing_fg 0000ff
 
+config-dir          Shows config directory in file viewer
+
 upgrade             Upgrade spicetify latest version
 
 ` + utils.Bold("FLAGS") + `
@@ -330,15 +373,17 @@ upgrade             Upgrade spicetify latest version
                     like clear backup, restore will proceed without prompting
                     permission.
 
--e, --extension     Use with "update", "watch" or "path" command to
-                    focus on extensions.
+-s, --style         Use with "watch" command to auto-reload Spotify when changes are made to the active theme (color.ini, user.css).
 
--a, --app           Use with "path" to focus on custom apps.
+-e, --extension     Use with "update", "watch" or "path" command to
+                    focus on extensions. Use with "watch" command to auto-reload Spotify when changes are made to extensions.
+
+-a, --app           Use with "watch" or "path" to focus on custom apps. Use with "watch" command to auto-reload Spotify when changes are made to apps.
 
 -n, --no-restart    Do not restart Spotify after running command(s), except
                     "restart" command.
 
--l, --live-update   Use with "watch" command to auto-reload Spotify on change
+-l, --live-update   Use with "watch" command to auto-reload Spotify when changes are made to any custom component (color.ini, user.css, extensions, apps).
 
 -c, --config        Print config file path and quit
 
@@ -346,8 +391,9 @@ upgrade             Upgrade spicetify latest version
 
 -v, --version       Print version number and quit
 
+When using the "watch" command, any combination of the style (-s), extension (-e), and app (-a) flags can be used (ex. "watch -s -e" or "watch -e -a").
 For config information, run "spicetify -h config".
-For more information and bug report: https://github.com/khanhas/spicetify-cli/`)
+For more information and bug report: https://github.com/spicetify/spicetify-cli/`)
 }
 
 func helpConfig() {
@@ -375,7 +421,7 @@ replace_colors <0 | 1>
 spotify_launch_flags
     Command-line flags used when launching/restarting Spotify.
     Separate each flag with "|".
-    List of valid flags: https://github.com/khanhas/spicetify-cli/wiki/Spotify-Commandline-Flags
+    List of valid flags: https://spicetify.app/docs/development/spotify-cli-flags
 
 ` + utils.Bold("[Preprocesses]") + `
 disable_sentry <0 | 1>
@@ -405,5 +451,17 @@ custom_apps <string>
 
 extensions <string>
     List of Javascript files to be executed along with Spotify main script.
-    Separate each extension with "|".`)
+    Separate each extension with "|".
+
+experimental_features <0 | 1>
+    Enable ability to activate unfinished or work-in-progress features that would eventually be released in future Spotify updates.
+    Open "Experimental features" popup in Profile menu.
+
+home_config <0 | 1>
+    Enable ability to re-arrange sections in Home page.
+    Navigate to Home page, turn "Home config" mode on in Profile menu and hover on sections to show customization buttons.
+
+sidebar_config <0 | 1>
+    Enable ability to stick, hide, re-arrange sidebar items.
+    Turn "Sidebar config" mode on in Profile menu and hover on sidebar items to show customization buttons.`)
 }

@@ -1,79 +1,101 @@
 class TabBarItem extends react.Component {
     render() {
-        return react.createElement("li", {
-            className: "reddit-tabBar-headerItem",
-            onClick: this.props.switchTo,
-        }, react.createElement("a", {
-            "aria-current": "page",
-            className: `reddit-tabBar-headerItemLink ${this.props.isActive ? "reddit-tabBar-active" : ""}`,
-            draggable: "false",
-            href: "",
-        }, react.createElement("span", {
-            className: "main-type-mestoBold"
-        }, this.props.name)));
+        return react.createElement(
+            "li",
+            {
+                className: "reddit-tabBar-headerItem",
+                onClick: (event) => {
+                    event.preventDefault();
+                    this.props.switchTo(this.props.item.key);
+                },
+            },
+            react.createElement(
+                "a",
+                {
+                    "aria-current": "page",
+                    className: `reddit-tabBar-headerItemLink ${this.props.item.active ? "reddit-tabBar-active" : ""}`,
+                    draggable: "false",
+                    href: "",
+                },
+                react.createElement(
+                    "span",
+                    {
+                        className: "main-type-mestoBold",
+                    },
+                    this.props.item.value
+                )
+            )
+        );
     }
 }
 
-class TabBarMore extends react.Component {
-    render() {
-        const hasActiveItem = this.props.items.includes(this.props.activeItem);
-        return react.createElement("div", {
-            className: `reddit-tabBar-headerItemLink reddit-tabBar-headerItem ${hasActiveItem ? "reddit-tabBar-active" : ""}`,
-        }, react.createElement("select", {
-            className: "main-type-mestoBold",
-            onChange: this.props.switchTo,
-            value: hasActiveItem ? this.props.activeItem : "",
-        }, react.createElement("option", {
-            value: "",
-            selected: true,
-            disabled: true,
-        }, "More"), this.props.items.map((name) => react.createElement("option", {
-            value: name
-        }, name))), react.createElement("svg", {
-            height: "16" ,
-            width: "16" ,
-            fill: "currentColor" ,
-            viewBox: "0 0 16 16",
-        }, react.createElement("path", {
-            d: "M3 6l5 5.794L13 6z",
-        })));
-    }
-}
+const TabBarMore = react.memo(({ items, switchTo }) => {
+    const activeItem = items.find((item) => item.active);
+
+    return react.createElement(
+        "li",
+        {
+            className: `reddit-tabBar-headerItem ${activeItem ? "reddit-tabBar-active" : ""}`,
+        },
+        react.createElement(OptionsMenu, {
+            options: items,
+            onSelect: switchTo,
+            selected: activeItem,
+            defaultValue: "More",
+            bold: true,
+        })
+    );
+});
 
 const TopBarContent = ({ links, activeLink, switchCallback }) => {
-    const [windowSize, setWindowSize] = useState(window.innerWidth);
-    const resizeHandler = () => setWindowSize(window.innerWidth);
+    const resizeHost = document.querySelector(".Root__main-view .os-resize-observer-host");
+    const [windowSize, setWindowSize] = useState(resizeHost.clientWidth);
+    const resizeHandler = () => setWindowSize(resizeHost.clientWidth);
 
     useEffect(() => {
-        window.addEventListener("resize", resizeHandler);
+        const observer = new ResizeObserver(resizeHandler);
+        observer.observe(resizeHost);
         return () => {
-          window.removeEventListener("resize", resizeHandler);
+            observer.disconnect();
         };
     }, [resizeHandler]);
 
-    return react.createElement(TabBarContext, null, react.createElement(TabBar, {
-        className: "queue-queueHistoryTopBar-tabBar",
-        links,
-        activeLink,
-        windowSize,
-        switchCallback,
-    }))
-}
+    return react.createElement(
+        TabBarContext,
+        null,
+        react.createElement(TabBar, {
+            className: "queue-queueHistoryTopBar-tabBar",
+            links,
+            activeLink,
+            windowSize,
+            switchCallback,
+        })
+    );
+};
 
 const TabBarContext = ({ children }) => {
     return reactDOM.createPortal(
-        react.createElement("div", {
-            className: "main-topBar-topbarContent"
-        }, children),
+        react.createElement(
+            "div",
+            {
+                className: "main-topBar-topbarContent",
+            },
+            children
+        ),
         document.querySelector(".main-topBar-topbarContentWrapper")
     );
-}
+};
 
 const TabBar = react.memo(({ links, activeLink, switchCallback, windowSize = Infinity }) => {
     const tabBarRef = react.useRef(null);
     const [childrenSizes, setChildrenSizes] = useState([]);
     const [availableSpace, setAvailableSpace] = useState(0);
     const [droplistItem, setDroplistItems] = useState([]);
+
+    const options = links.map((key) => {
+        const active = key === activeLink;
+        return { key, value: key, active };
+    });
 
     useEffect(() => {
         if (!tabBarRef.current) return;
@@ -84,7 +106,7 @@ const TabBar = react.memo(({ links, activeLink, switchCallback, windowSize = Inf
         if (!tabBarRef.current) return;
 
         const children = Array.from(tabBarRef.current.children);
-        const tabbarItemSizes = children.map(child => child.clientWidth);
+        const tabbarItemSizes = children.map((child) => child.clientWidth);
 
         setChildrenSizes(tabbarItemSizes);
     }, [links]);
@@ -92,7 +114,7 @@ const TabBar = react.memo(({ links, activeLink, switchCallback, windowSize = Inf
     useEffect(() => {
         if (!tabBarRef.current) return;
 
-        const totalSize = childrenSizes.slice(0, -1).reduce((a, b) => a + b, 0);
+        const totalSize = childrenSizes.reduce((a, b) => a + b, 0);
 
         // Can we render everything?
         if (totalSize <= availableSpace) {
@@ -103,11 +125,7 @@ const TabBar = react.memo(({ links, activeLink, switchCallback, windowSize = Inf
         // The `More` button can be set to _any_ of the children. So we
         // reserve space for the largest item instead of always taking
         // the last item.
-        const viewMoreButtonSize = childrenSizes.reduce(
-            (buttonASize, buttonBSize) =>
-                buttonASize > buttonBSize ? buttonASize : buttonBSize,
-            0,
-        );
+        const viewMoreButtonSize = Math.max(...childrenSizes);
 
         // Figure out how many children we can render while also showing
         // the More button
@@ -122,26 +140,34 @@ const TabBar = react.memo(({ links, activeLink, switchCallback, windowSize = Inf
             }
         });
 
-        setDroplistItems(itemsToHide.map(i => CONFIG.services[i]).filter(i => i));
+        setDroplistItems(itemsToHide);
     }, [availableSpace, childrenSizes]);
 
-    return react.createElement("nav", {
+    return react.createElement(
+        "nav",
+        {
             className: "reddit-tabBar reddit-tabBar-nav",
-        }, react.createElement("ul", {
-            className: "reddit-tabBar-header",
-            ref: tabBarRef,
-        }, links
-            .filter(item=> !droplistItem.includes(item))
-            .map(item => react.createElement(TabBarItem, {
-                name: item,
-                switchTo: switchCallback,
-                isActive: activeLink === item,
-            })),
-            (droplistItem.length || childrenSizes.length === 0) ?
-                react.createElement(TabBarMore, {
-                    items: droplistItem,
-                    switchTo: switchCallback,
-                    activeItem: activeLink,
-                }) : null)
-        );
+        },
+        react.createElement(
+            "ul",
+            {
+                className: "reddit-tabBar-header",
+                ref: tabBarRef,
+            },
+            options
+                .filter((_, id) => !droplistItem.includes(id))
+                .map((item) =>
+                    react.createElement(TabBarItem, {
+                        item,
+                        switchTo: switchCallback,
+                    })
+                ),
+            droplistItem.length || childrenSizes.length === 0
+                ? react.createElement(TabBarMore, {
+                      items: droplistItem.map((i) => options[i]).filter((i) => i),
+                      switchTo: switchCallback,
+                  })
+                : null
+        )
+    );
 });

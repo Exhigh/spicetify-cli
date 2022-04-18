@@ -1,6 +1,5 @@
 const Providers = {
-    spotify: async(info) => {
-        
+    spotify: async (info) => {
         const result = {
             uri: info.uri,
             karaoke: null,
@@ -10,9 +9,7 @@ const Providers = {
             copyright: null,
         };
 
-
-
-        const baseURL = "hm://lyrics/v1/track/";
+        const baseURL = "wg://lyrics/v1/track/";
         const id = info.uri.split(":")[2];
         let body;
         try {
@@ -22,27 +19,20 @@ const Providers = {
         }
 
         const lines = body.lines;
-        if (
-            !lines ||
-            !lines.length
-        ) {
-            return { error: "No lyric", uri: info.uri };
+        if (!lines || !lines.length) {
+            return { error: "No lyrics", uri: info.uri };
         }
 
         if (typeof lines[0].time === "number") {
-            result.synced = lines
-                .map((line) => ({
-                    startTime: line.time,
-                    text: line.words
-                        .map(b => b.string)
-                        .join(" "),
-                }));
+            result.synced = lines.map((line) => ({
+                startTime: line.time,
+                text: line.words.map((b) => b.string).join(" "),
+            }));
             result.unsynced = result.synced;
         } else {
-            result.unsynced = lines
-                .map((line) => ({
-                    text: line.words.map(b => b.string).join(" "),
-                }));;
+            result.unsynced = lines.map((line) => ({
+                text: line.words.map((b) => b.string).join(" "),
+            }));
         }
 
         result.provider = body.provider;
@@ -64,20 +54,23 @@ const Providers = {
         let list;
         try {
             list = await ProviderMusixmatch.findLyrics(info);
+            if (list.error) {
+                throw "";
+            }
         } catch {
-            result.error = "No lyric";
+            result.error = "No lyrics";
             return result;
         }
 
         const synced = ProviderMusixmatch.getSynced(list);
         if (synced) {
             result.synced = synced;
-            result.copyright = list["track.subtitles.get"].message.body.subtitle_list[0].subtitle.lyrics_copyright.trim();
+            result.copyright = list["track.subtitles.get"].message?.body?.subtitle_list?.[0]?.subtitle.lyrics_copyright.trim();
         }
         const unsynced = synced || ProviderMusixmatch.getUnsynced(list);
         if (unsynced) {
             result.unsynced = unsynced;
-            result.copyright = list["track.lyrics.get"].message.body.lyrics.lyrics_copyright.trim();
+            result.copyright = list["track.lyrics.get"].message?.body?.lyrics?.lyrics_copyright?.trim();
         }
 
         return result;
@@ -97,7 +90,7 @@ const Providers = {
         try {
             list = await ProviderNetease.findLyrics(info);
         } catch {
-            result.error = "No lyric";
+            result.error = "No lyrics";
             return result;
         }
 
@@ -117,17 +110,28 @@ const Providers = {
         return result;
     },
     genius: async (info) => {
-        const result = await ProviderGenius.fetchLyrics(info);
+        const { lyrics, versions } = await ProviderGenius.fetchLyrics(info);
+
+        let versionIndex2 = 0;
+        let genius2 = lyrics;
+        if (CONFIG.visual["dual-genius"] && versions.length > 1) {
+            genius2 = await ProviderGenius.fetchLyricsVersion(versions, 1);
+            versionIndex2 = 1;
+        }
 
         return {
             uri: info.uri,
-            genius: result,
+            genius: lyrics,
             provider: "Genius",
             karaoke: null,
             synced: null,
             unsynced: null,
             copyright: null,
             error: null,
-        }
+            versions,
+            versionIndex: 0,
+            genius2,
+            versionIndex2,
+        };
     },
 };

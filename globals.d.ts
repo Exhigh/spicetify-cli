@@ -82,9 +82,19 @@ declare namespace Spicetify {
          *  - `appchange` type when user changes page.
          */
         function addEventListener(type: string, callback: (event?: Event) => void): void;
-        function addEventListener(type: "songchange", callback: (event?: Event | { data: PlayerState }) => void): void;
-        function addEventListener(type: "onplaypause", callback: (event?: Event | { data: PlayerState }) => void): void;
-        function addEventListener(type: "onprogress", callback: (event?: Event | { data: number }) => void): void;
+        function addEventListener(type: "songchange", callback: (event?: Event & { data: PlayerState }) => void): void;
+        function addEventListener(type: "onplaypause", callback: (event?: Event & { data: PlayerState }) => void): void;
+        function addEventListener(type: "onprogress", callback: (event?: Event & { data: number }) => void): void;
+        function addEventListener(type: "appchange", callback: (event?: Event & { data: {
+            /**
+             * App href path
+             */
+            path: string;
+            /**
+             * App container
+             */
+             container: HTMLElement;
+        } }) => void): void;
         /**
          * Skip to previous track.
          */
@@ -167,6 +177,13 @@ declare namespace Spicetify {
          * Resume track.
          */
         function play(): void;
+        /**
+         * Play a track, playlist, album, etc. immediately
+         * @param uri Spotify URI
+         * @param context
+         * @param options
+         */
+        async function playUri(uri: string, context: any = {}, options: Options = {});
         /**
          * Unregister added event listener `type`.
          * @param type
@@ -349,6 +366,8 @@ declare namespace Spicetify {
          */
         class Item {
             constructor(name: string, isEnabled: boolean, onClick: (self: Item) => void);
+            name: string;
+            isEnabled: boolean;
             /**
              * Change item name
              */
@@ -374,10 +393,19 @@ declare namespace Spicetify {
          */
         class SubMenu {
             constructor(name: string, subItems: Item[]);
+            name: string;
             /**
              * Change SubMenu name
              */
             setName(name: string): void;
+            /**
+             * Add an item to sub items list
+             */
+            addItem(item: Item);
+            /**
+             * Remove an item from sub items list
+             */
+            removeItem(item: Item);
             /**
              * SubMenu is only available in Profile menu when method "register" is called.
              */
@@ -400,26 +428,6 @@ declare namespace Spicetify {
      function Mousetrap(element?: any): void;
 
     /**
-     * Use to force playing a track/episode/album/show/playlist/artist URI.
-     */
-    namespace PlaybackControl {
-        async function resume();
-        async function pause();
-        async function nextTrack();
-        async function previousTrack();
-        async function addToQueue(uri: string);
-        async function playTracks(trackList: ContextTrack[], options: ContextOption = {});
-        async function playUri(uri: string, options: Options = {});
-        async function playCollection(trackUri: string, sort: string, filter: string);
-        async function seek(positionInMs: number);
-        async function setShuffle(enabled: boolean);
-        async function setRepeatMode(repeat: 0 | 1 | 2);
-        async function setPrivateSession(enabled: boolean);
-        async function setPreferredSubtitle(language: string): Promise<void>;
-        async function getPreferredSubtitle(): Promise<string>;
-    }
-
-    /**
      * Contains vast array of internal APIs.
      * Please explore in Devtool Console.
      */
@@ -429,9 +437,9 @@ declare namespace Spicetify {
      * history of played tracks and current track metadata.
      */
     const Queue: {
-        next_tracks: any[];
-        prev_tracks: any[];
-        revision: string;
+        nextTracks: any[];
+        prevTracks: any[];
+        queueRevision: string;
         track: any;
     };
     /**
@@ -1124,6 +1132,8 @@ declare namespace Spicetify {
      */
     namespace ContextMenu {
         type Icon = "album" | "artist" | "block" | "chart-down" | "chart-up" | "check" | "check-alt-fill" | "chevron-left" | "chevron-right" | "chromecast-disconnected" | "copy" | "download" | "downloaded" | "edit" | "exclamation-circle" | "external-link" | "facebook" | "follow" | "fullscreen" | "grid-view" | "heart" | "heart-active" | "instagram" | "list-view" | "locked" | "locked-active" | "lyrics" | "minimize" | "more" | "new-spotify-connect" | "offline" | "pause" | "play" | "playlist" | "playlist-folder" | "plus2px" | "plus-alt" | "podcasts" | "repeat" | "repeat-once" | "search" | "search-active" | "shuffle" | "skip-back" | "skip-back15" | "skip-forward" | "skip-forward15" | "soundbetter" | "subtitles" | "twitter" | "volume" | "volume-off" | "volume-one-wave" | "volume-two-wave" | "x";
+        type OnClickCallback = (uris: string[], uids?: string[], contextUri?: string) => void;
+        type ShouldAddCallback = (uris: string[], uids?: string[], contextUri?: string) => boolean;
 
         // Single context menu item
         class Item {
@@ -1131,18 +1141,18 @@ declare namespace Spicetify {
              * List of valid icons to use.
              */
             static readonly iconList: Icon[];
-            constructor(name: string, onClick: (uris: string[]) => void, shouldAdd: (uris: string[]) => boolean = (uris: string[]) => true, icon?: Icon, disabled?: boolean);
-            set name(text: string);
-            set icon(name: Icon | string);
-            set disabled(bool: boolean);
+            constructor(name: string, onClick: OnClickCallback, shouldAdd?: ShouldAddCallback, icon?: Icon, disabled?: boolean);
+            name: string;
+            icon: Icon | string;
+            disabled: boolean;
             /**
              * A function returning boolean determines whether item should be prepended.
              */
-            set shouldAdd(func: (uris: string[]) => boolean);
+            shouldAdd: ShouldAddCallback;
             /**
              * A function to call when item is clicked
              */
-            set onClick(func: (uris: string[]) => void);
+            onClick: OnClickCallback;
             /**
              * Item is only available in Context Menu when method "register" is called.
              */
@@ -1158,24 +1168,15 @@ declare namespace Spicetify {
          * `Item`s in `subItems` array shouldn't be registered.
          */
         class SubMenu {
-            /**
-             * List of valid icons to use.
-             */
-            static readonly iconList: Icon[];
-            constructor(name: string, subItems: Iterable<Item>, shouldAdd = (uris) => true, icon?: Icon, disabled?: boolean);
-            set name(text: string);
-            set icon(name: Icon | string);
-            set disabled(bool: boolean);
-            /**
-             * Replace current `Item`s list
-             */
-            set items(items: Iterable<Item>);
-            addItem: (item: Item) => void;
-            removeItem: (item: Item) => void;
+            constructor(name: string, subItems: Iterable<Item>, shouldAdd?: ShouldAddCallback, disabled?: boolean);
+            name: string;
+            disabled: boolean;
             /**
              * A function returning boolean determines whether item should be prepended.
              */
-            set shouldAdd(func: (uris: string[]) => boolean);
+            shouldAdd: ShouldAddCallback;
+            addItem: (item: Item) => void;
+            removeItem: (item: Item) => void;
             /**
              * SubMenu is only available in Context Menu when method "register" is called.
              */
@@ -1198,6 +1199,10 @@ declare namespace Spicetify {
              * or a HTML element for interactive config/setting menu
              */
             content: string | Element;
+            /**
+             * Bigger window
+             */
+            isLarge?: boolean;
         }
 
         function display(e: Content): void;
@@ -1208,4 +1213,145 @@ declare namespace Spicetify {
     const React: any;
     /** React DOM instance to render and mount components */
     const ReactDOM: any;
+
+    /** Stock React components exposed from Spotify library */
+    namespace ReactComponent {
+        type ContextMenuProps = {
+            /**
+             * Decide whether to use the global singleton context menu (rendered in <body>)
+             * or a new inline context menu (rendered in a sibling
+             * element to `children`)
+             */
+            renderInline?: boolean;
+            /**
+             * Determins what will trigger the context menu. For example, a click, or a right-click
+             */
+            trigger?: 'click' | 'right-click';
+            /**
+             * Determins is the context menu should open or toggle when triggered
+             */
+            action?: 'toggle' | 'open';
+            /**
+             * The preferred placement of the context menu when it opens.
+             * Relative to trigger element.
+             */
+            placement?: 'top' | 'top-start' | 'top-end' | 'right' | 'right-start' | 'right-end' | 'bottom' | 'bottom-start' | 'bottom-end' | 'left' | 'left-start' | 'left-end';
+            /**
+             * The x and y offset distances at which the context menu should open.
+             * Relative to trigger element and `position`.
+             */
+            offset?: [number, number];
+            /**
+             * Will stop the client from scrolling while the context menu is open
+             */
+            preventScrollingWhileOpen?: boolean;
+            /**
+             * The menu UI to render inside of the context menu.
+             */
+            menu: Spicetify.ReactComponent.Menu |
+                Spicetify.ReactComponent.AlbumMenu |
+                Spicetify.ReactComponent.PodcastShowMenu |
+                Spicetify.ReactComponent.ArtistMenu |
+                Spicetify.ReactComponent.PlaylistMenu;
+            /**
+             * A child of the context menu. Should be `<button>`, `<a>`,
+             * a custom react component that forwards a ref to a `<button>` or `<a>`,
+             * or a function. If a function is passed it will be called with
+             * (`isOpen`, `handleContextMenu`, `ref`) as arguments.
+             */
+            children: ContextMenuChildren;
+        };
+        type MenuProps = {
+            /**
+             * Function that is called when the menu is closed
+             */
+            onClose?: () => void;
+            /**
+             * Function that provides the element that focus should jump to when the menu
+             * is opened
+             */
+            getInitialFocusElement?: (el: HTMLElement | null) => HTMLElement | undefined | null;
+        }
+        type MenuItemProps = {
+            /**
+             * Function that runs when `MenuItem` is clicked
+             */
+            onClick?: React.MouseEventHandler<HTMLButtonElement>;
+            /**
+             * Indicates if `MenuItem` is disabled. Disabled items will not cause
+             * the `Menu` to close when clicked.
+             */
+            disabled?: boolean;
+            /**
+             * Indicate that a divider line should be added `before` or `after` this `MenuItem`
+             */
+            divider?: 'before' | 'after' | 'both';
+            /**
+             * React component icon that will be rendered at the end of the `MenuItem`
+             */
+            icon?: React.ReactNode;
+        };
+        /**
+         * Generic context menu provider
+         * 
+         * Props:
+         * @see Spicetify.ReactComponent.ContextMenuProps
+         */
+        const ContextMenu: any;
+        /**
+         * Wrapper of ReactComponent.ContextMenu with props: action = 'toggle' and trigger = 'right-click'
+         * 
+         * Props:
+         * @see Spicetify.ReactComponent.ContextMenuProps
+         */
+        const RightClickMenu: any;
+        /**
+         * Outer layer contain ReactComponent.MenuItem(s)
+         * 
+         * Props:
+         * @see Spicetify.ReactComponent.MenuProps
+         */
+        const Menu: any;
+        /**
+         * Component to construct menu item
+         * Used as ReactComponent.Menu children
+         * 
+         * Props:
+         * @see Spicetify.ReactComponent.MenuItemProps
+         */
+        const MenuItem: any;
+        /**
+         * Tailored ReactComponent.Menu for specific type of object
+         * 
+         * Props: {
+         *      uri: string;
+         *      onRemoveCallback?: (uri: string) => void;
+         * }
+         */
+        const AlbumMenu: any;
+        const PodcastShowMenu: any;
+        const ArtistMenu: any;
+        const PlaylistMenu: any;
+    };
+
+    /**
+     * Add button in top bar next to navigation buttons
+     */
+    namespace Topbar {
+        class Button {
+            constructor(label: string, icon: string, onClick: (self: Button) => void, disabled = false);
+            label: string;
+            icon: string;
+            onClick: (self: Button) => void;
+            disabled: boolean;
+            element: HTMLButtonElement;
+        }
+    }
+
+    /**
+     * SVG icons 
+     */
+    namespace SVGIcons {
+        const check: string;
+    }
 }

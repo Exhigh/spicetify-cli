@@ -15,7 +15,7 @@ var (
 		"Setting": {
 			"spotify_path":            "",
 			"prefs_path":              "",
-			"current_theme":           "SpicetifyDefault",
+			"current_theme":           "",
 			"color_scheme":            "",
 			"inject_css":              "1",
 			"replace_colors":          "1",
@@ -31,8 +31,11 @@ var (
 			"disable_upgrade_check": "1",
 		},
 		"AdditionalOptions": {
-			"extensions":                   "",
-			"custom_apps":                  "",
+			"extensions":            "",
+			"custom_apps":           "",
+			"sidebar_config":        "1",
+			"home_config":           "1",
+			"experimental_features": "1",
 		},
 		"Patch": {},
 	}
@@ -130,7 +133,7 @@ func getDefaultConfig() *ini.File {
 	}
 
 	if len(prefsFilePath) == 0 {
-		PrintError(`Could not detect "prefs" file location.`)
+		PrintError("Could not detect \"prefs\" file location.")
 	} else {
 		configLayout["Setting"]["prefs_path"] = prefsFilePath
 	}
@@ -151,6 +154,7 @@ func getDefaultConfig() *ini.File {
 	}
 	version.Comment = "DO NOT CHANGE!"
 	version.NewKey("version", "")
+	version.NewKey("with", "")
 	return cfg
 }
 
@@ -183,8 +187,10 @@ func FindPrefFilePath() string {
 	switch runtime.GOOS {
 	case "windows":
 		path := winPrefs()
-		if len(path) == 0 {
+		if len(path) == 0 && len(winXApp()) != 0 {
 			path = winXPrefs()
+		} else if len(path) == 0 {
+			PrintError("No valid path options found, ensure you have Spotify installed and have ran it for at least 30 seconds.")
 		}
 		return path
 
@@ -289,6 +295,7 @@ func linuxApp() string {
 	potentialList := []string{
 		"/opt/spotify/",
 		"/usr/share/spotify/",
+		"/usr/libexec/spotify/",
 		"/var/lib/flatpak/app/com.spotify.Client/x86_64/stable/active/files/extra/share/spotify/",
 	}
 
